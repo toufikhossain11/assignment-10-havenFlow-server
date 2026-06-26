@@ -28,6 +28,9 @@ async function run() {
     const db = client.db('havenFlow').collection('properties');
     const reviewsCollection = client.db('havenFlow').collection('reviews');
     const userCollection = client.db('havenFlow').collection('user');
+    
+    // ✅ ফেভারিট কালেকশন
+    const favoritesCollection = client.db('havenFlow').collection('favorites');
 
     // ১. ফিচার্ড প্রপার্টিজ (সর্বোচ্চ ৬ টি অনুমোদিত প্রপার্টি দেখাবে)
     app.get("/featured-properties", async (req, res) => {
@@ -120,9 +123,7 @@ async function run() {
       }
     });
 
-    // 🆕 ৬.১ অ্যাডমিন অল প্রপার্টিজ — status filter chara shob property (pending/approved/rejected shob)
-    // Public "/properties" route shudhu approved property dey, tai admin panel eta use korle
-    // reject/approve korar por reload dile property ta list theke hariye jeto.
+    // ৬.১ অ্যাডমিন অল প্রপার্টিজ — status filter chara shob property (pending/approved/rejected shob)
     app.get("/admin/properties", async (req, res) => {
       try {
         const result = await db.find().sort({ _id: -1 }).toArray();
@@ -163,10 +164,7 @@ async function run() {
       }
     });
 
-    /**
-     * 🟢 ৮. PROPERTY STATUS UPDATE ROUTE
-     * Approve / Reject — kono case e document delete hoy na, shudhu status field update hoy.
-     */
+    // ৮. PROPERTY STATUS UPDATE ROUTE
     app.patch('/property/status/:id', async (req, res) => {
       try {
         const id = req.params.id;
@@ -196,10 +194,101 @@ async function run() {
       }
     });
 
-    // 🚫 ৯. PROPERTY DELETE ROUTE — INTENTIONALLY REMOVED
-    // Assignment requirement: "No Property will be Delete". Property reject/approve
-    // shudhu status update kore, kokhono document remove kore na. Delete route ta
-    // notun add korar age, eta requirement-er sathe matche kina double-check koro.
+
+    // =========================================================================
+    // 🔥 FAVORITE SYSTEM ENDPOINTS
+    // =========================================================================
+
+    // ১০. অলরেডি ফেভারিট করা আছে কি না চেক করার API
+    app.get("/favorites/check", async (req, res) => {
+      const { email, propertyId } = req.query;
+
+      if (!email || !propertyId) {
+        return res.status(400).send({ message: "Email and propertyId are required" });
+      }
+
+      try {
+        const query = { userEmail: email, propertyId: propertyId };
+        const favoriteItem = await favoritesCollection.findOne(query);
+
+        if (favoriteItem) {
+          res.send({ isFavorite: true, favoriteId: favoriteItem._id });
+        } else {
+          res.send({ isFavorite: false, favoriteId: null });
+        }
+      } catch (error) {
+        console.error("Error checking favorite status:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
+    // ১১. ফেভারিট কালেকশনে নতুন ডাটা যোগ করার API
+    app.post("/favorites", async (req, res) => {
+      const favoriteData = req.body;
+
+      if (!favoriteData.userEmail || !favoriteData.propertyId) {
+        return res.status(400).send({ message: "Missing required fields" });
+      }
+
+      try {
+        // ডুপ্লিকেট রোধ করার চেক
+        const alreadyExist = await favoritesCollection.findOne({
+          userEmail: favoriteData.userEmail,
+          propertyId: favoriteData.propertyId
+        });
+
+        if (alreadyExist) {
+          return res.status(400).send({ message: "This property is already in favorites" });
+        }
+
+        const result = await favoritesCollection.insertOne(favoriteData);
+        res.status(201).send(result);
+      } catch (error) {
+        console.error("Error saving favorite:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
+    // ১২. ফেভারিট থেকে রিমুভ করার API
+    app.delete("/favorites/:id", async (req, res) => {
+      const id = req.params.id;
+      const { email } = req.query;
+
+      if (!email) {
+        return res.status(400).send({ message: "User email is required" });
+      }
+
+      try {
+        let query;
+        if (ObjectId.isValid(id)) {
+          query = { _id: new ObjectId(id), userEmail: email };
+        } else {
+          query = { propertyId: id, userEmail: email };
+        }
+
+        const result = await favoritesCollection.deleteOne(query);
+        res.send(result);
+      } catch (error) {
+        console.error("Error deleting favorite:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
+    // ১৩. ড্যাশবোর্ডে নির্দিষ্ট ইউজারের সব ফেভারিট লিস্ট দেখানোর API
+    app.get("/favorites", async (req, res) => {
+      const { email } = req.query;
+      if (!email) {
+        return res.status(400).send({ message: "Email parameter is required" });
+      }
+      try {
+        const query = { userEmail: email };
+        const result = await favoritesCollection.find(query).toArray();
+        res.send(result);
+      } catch (error) {
+        console.error("Error fetching favorites list:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
 
   } catch (error) {
     console.error("Database connection error:", error);
