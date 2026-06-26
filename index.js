@@ -134,6 +134,88 @@ async function run() {
       }
     });
 
+    // 🔥 নতুন প্রপার্টি অ্যাড করার জন্য POST API
+    app.post("/properties", async (req, res) => {
+      try {
+        const propertyData = req.body;
+        if (!propertyData.status) {
+          propertyData.status = "Pending";
+        }
+        const result = await db.insertOne(propertyData);
+        res.status(201).send(result);
+      } catch (error) {
+        console.error("Error saving new property:", error);
+        res.status(500).send({ message: "Failed to save property to database" });
+      }
+    });
+
+    // 🔄 ৯. ওনারের ইমেইল অনুযায়ী নিজস্ব প্রপার্টিজ পাওয়ার API (My Properties Page)
+    app.get("/my-properties", async (req, res) => {
+      try {
+        const { email } = req.query;
+        if (!email) {
+          return res.status(400).send({ message: "Owner email parameter is required" });
+        }
+        const query = { ownerEmail: email };
+        const result = await db.find(query).sort({ _id: -1 }).toArray();
+        res.send(result);
+      } catch (error) {
+        console.error("Error fetching owner properties:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
+    // 🔄 ৯.১ ওনারের নিজস্ব প্রপার্টি এডিট/আপডেট করার API (সবগুলো ফিল্ড যুক্ত করা হয়েছে 🛠️)
+    app.put("/property/update/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const updatedData = req.body;
+
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({ message: "Invalid ID format" });
+        }
+
+        const filter = { _id: new ObjectId(id) };
+        const updateDoc = {
+          $set: {
+            title: updatedData.title,
+            description: updatedData.description,
+            location: updatedData.location,
+            propertyType: updatedData.propertyType,
+            rent: `Tk ${updatedData.price}`, // ফ্রন্টএন্ড টেবিল ক্র্যাশ প্রোটেকশনের সাথে মিল রেখে ফরম্যাট করা হলো
+            rentType: updatedData.rentType,
+            bedrooms: Number(updatedData.bedrooms),
+            bathrooms: Number(updatedData.bathrooms),
+            size: Number(updatedData.size),
+            amenities: updatedData.amenities,
+            status: "Pending" // এডিট করার পর প্রপার্টি পুনরায় রিভিউ স্টেটে যাবে
+          }
+        };
+
+        const result = await db.updateOne(filter, updateDoc);
+        res.send(result);
+      } catch (error) {
+        console.error("Error updating property details:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
+    // 🔄 ৯.২ ওনারের নিজস্ব প্রপার্টি ডিলিট করার API
+    app.delete("/properties/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({ message: "Invalid ID format" });
+        }
+        const query = { _id: new ObjectId(id) };
+        const result = await db.deleteOne(query);
+        res.send(result);
+      } catch (error) {
+        console.error("Error deleting property from database:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
     // ৬. অ্যাডমিন অল ইউজার্স পেজ
     app.get("/user", async (req, res) => {
       try {
