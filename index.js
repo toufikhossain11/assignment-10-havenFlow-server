@@ -363,6 +363,19 @@ async function run() {
     // এই একটি রুটই ফ্রন্টএন্ডের সকল প্রকার ফিল্টারিং (ownerEmail / tenantEmail / email) হ্যান্ডেল করবে
     // ১৪. ওনার ও টেন্যান্টের বুকিং লিস্ট দেখানোর অপ্টিমাইজড রুট
     // ১৪. সব বুকিং ডাটা ফিল্টারিং ছাড়া একসাথে পাওয়ার ইউনিক রুট
+    // ১৭. ডাটাবেজ থেকে সব ট্রানজেকশন হিস্ট্রি পাওয়ার গ্লোবাল API
+    app.get("/transactions", async (req, res) => {
+      try {
+        const result = await transactionsCollection.find({}).sort({ _id: -1 }).toArray();
+        res.send(result);
+      } catch (error) {
+        console.error("Error fetching transactions:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
+
+
     app.get("/bookings", async (req, res) => {
       try {
         // কোনো ইমেইল ফিল্টার নেই, সরাসরি সব ডাটা চলে যাবে ফ্রন্টএন্ডে
@@ -452,6 +465,68 @@ async function run() {
         res.status(500).send({ message: "Internal Server Error" });
       }
     });
+    // ১৮. ড্যাশবোর্ডের ওভারভিউ স্ট্যাটস এবং চার্ট ডাটা পাওয়ার API
+app.get("/api/dashboard-stats", async (req, res) => {
+  try {
+    // ১. টোটাল প্রপার্টি কাউন্ট
+    const totalProperties = await db.countDocuments({});
+
+    // ২. টোটাল বুকিং কাউন্ট
+    const totalBookings = await bookingsCollection.countDocuments({});
+
+    // ৩. টোটাল আর্নিং এবং মান্থলি চার্ট ডাটার জন্য বুকিং এগ্রিগেশন (শুধুমাত্র Paid পেমেন্ট কাউন্ট হবে)
+    const earningsStats = await bookingsCollection.aggregate([
+      { $match: { paymentStatus: "Paid" } },
+      {
+        $group: {
+          _id: null,
+          totalEarnings: { $sum: "$bookingAmount" },
+          allBookings: { $push: "$$ROOT" }
+        }
+      }
+    ]).toArray();
+
+    const totalEarnings = earningsStats[0]?.totalEarnings || 0;
+    const paidBookings = earningsStats[0]?.allBookings || [];
+
+    // ৪. Recharts-এর জন্য ১২ মাসের ডাটা প্রিপারেশন লজিক
+    const monthsOrder = ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun"];
+    
+    // প্রতি মাসের আর্নিং অবজেক্ট ইনিশিয়ালাইজ করা
+    const monthlyMap = {};
+    monthsOrder.forEach(m => monthlyMap[m] = 0);
+
+    // বুকিং ডেট থেকে মাস আলাদা করে গ্রুপ করা
+    paidBookings.forEach(booking => {
+      if (booking.bookingDate) {
+        const date = new Date(booking.bookingDate);
+        const monthName = date.toLocaleString("en-US", { month: "short" }); // e.g., "Jun"
+        if (monthlyMap[monthName] !== undefined) {
+          monthlyMap[monthName] += (booking.bookingAmount || 0);
+        }
+      }
+    });
+
+    // Recharts ফ্রেন্ডলি অ্যারে ফরম্যাটে কনভার্ট করা
+    const chartData = monthsOrder.map(month => ({
+      month: month,
+      earnings: monthlyMap[month]
+    }));
+
+    res.send({
+      totalEarnings,
+      totalProperties,
+      totalBookings,
+      chartData
+    });
+
+  } catch (error) {
+    console.error("Error fetching dashboard stats:", error);
+    res.status(500).send({ message: "Internal Server Error" });
+  }
+});
+
+
 
   } catch (error) {
     console.error("Database connection error:", error);
