@@ -20,6 +20,14 @@ const client = new MongoClient(uri, {
   }
 });
 
+// 🔁 Shared helper — Valid ObjectId check middleware
+const validateObjectId = (req, res, next) => {
+  if (!ObjectId.isValid(req.params.id)) {
+    return res.status(400).send({ message: "Invalid ID format" });
+  }
+  next();
+};
+
 async function run() {
   try {
     await client.connect();
@@ -28,11 +36,8 @@ async function run() {
     const db = client.db('havenFlow').collection('properties');
     const reviewsCollection = client.db('havenFlow').collection('reviews');
     const userCollection = client.db('havenFlow').collection('user');
-
     const bookingsCollection = client.db('havenFlow').collection('bookings');
     const transactionsCollection = client.db('havenFlow').collection('transactions');
-    
-    // ✅ ফেভারিট কালেকশন
     const favoritesCollection = client.db('havenFlow').collection('favorites');
 
     // ১. ফিচার্ড প্রপার্টিজ (সর্বোচ্চ ৬ টি অনুমোদিত প্রপার্টি দেখাবে)
@@ -81,13 +86,9 @@ async function run() {
     });
 
     // ৩. সিঙ্গেল প্রপার্টি ডিটেইলস
-    app.get('/properties/:id', async (req, res) => {
+    app.get('/properties/:id', validateObjectId, async (req, res) => {
       try {
         const { id } = req.params;
-        if (!ObjectId.isValid(id)) {
-          return res.status(400).send({ message: "Invalid Property ID format" });
-        }
-
         const result = await db.findOne({
           _id: new ObjectId(id),
           status: { $regex: /^approved$/i }
@@ -96,7 +97,6 @@ async function run() {
         if (!result) {
           return res.status(404).send({ message: "Property not found" });
         }
-
         res.json(result);
       } catch (error) {
         console.error("Error fetching single property:", error);
@@ -126,7 +126,7 @@ async function run() {
       }
     });
 
-    // ৬.১ অ্যাডমিন অল প্রপার্টিজ — status filter chara shob property (pending/approved/rejected shob)
+    // ৬.১ অ্যাডমিন অল প্রপার্টিজ
     app.get("/admin/properties", async (req, res) => {
       try {
         const result = await db.find().sort({ _id: -1 }).toArray();
@@ -152,7 +152,7 @@ async function run() {
       }
     });
 
-    // 🔄 ৯. ওনারের ইমেইল অনুযায়ী নিজস্ব প্রপার্টিজ পাওয়ার API (My Properties Page)
+    // 🔄 ওনারের ইমেইল অনুযায়ী নিজস্ব প্রপার্টিজ পাওয়ার API
     app.get("/my-properties", async (req, res) => {
       try {
         const { email } = req.query;
@@ -168,15 +168,11 @@ async function run() {
       }
     });
 
-    // 🔄 ৯.১ ওনারের নিজস্ব প্রপার্টি এডিট/আপডেট করার API (সবগুলো ফিল্ড যুক্ত করা হয়েছে 🛠️)
-    app.put("/property/update/:id", async (req, res) => {
+    // 🔄 ওনারের নিজস্ব প্রপার্টি এডিট/আপডেট করার API
+    app.put("/property/update/:id", validateObjectId, async (req, res) => {
       try {
-        const id = req.params.id;
+        const { id } = req.params;
         const updatedData = req.body;
-
-        if (!ObjectId.isValid(id)) {
-          return res.status(400).send({ message: "Invalid ID format" });
-        }
 
         const filter = { _id: new ObjectId(id) };
         const updateDoc = {
@@ -185,13 +181,13 @@ async function run() {
             description: updatedData.description,
             location: updatedData.location,
             propertyType: updatedData.propertyType,
-            rent: `Tk ${updatedData.price}`, // ফ্রন্টএন্ড টেবিল ক্র্যাশ প্রোটেকশনের সাথে মিল রেখে ফরম্যাট করা হলো
+            rent: `Tk ${updatedData.price}`,
             rentType: updatedData.rentType,
             bedrooms: Number(updatedData.bedrooms),
             bathrooms: Number(updatedData.bathrooms),
             size: Number(updatedData.size),
             amenities: updatedData.amenities,
-            status: "Pending" // এডিট করার পর প্রপার্টি পুনরায় রিভিউ স্টেটে যাবে
+            status: "Pending"
           }
         };
 
@@ -203,15 +199,11 @@ async function run() {
       }
     });
 
-    // 🔄 ৯.২ ওনারের নিজস্ব প্রপার্টি ডিলিট করার API
-    app.delete("/properties/:id", async (req, res) => {
+    // 🔄 ওনারের নিজস্ব প্রপার্টি ডিলিট করার API
+    app.delete("/properties/:id", validateObjectId, async (req, res) => {
       try {
-        const id = req.params.id;
-        if (!ObjectId.isValid(id)) {
-          return res.status(400).send({ message: "Invalid ID format" });
-        }
-        const query = { _id: new ObjectId(id) };
-        const result = await db.deleteOne(query);
+        const { id } = req.params;
+        const result = await db.deleteOne({ _id: new ObjectId(id) });
         res.send(result);
       } catch (error) {
         console.error("Error deleting property from database:", error);
@@ -230,19 +222,15 @@ async function run() {
     });
 
     // ৭. ইউজারের রোল আপডেট (PATCH)
-    app.patch("/user/role/:id", async (req, res) => {
+    app.patch("/user/role/:id", validateObjectId, async (req, res) => {
       try {
-        const id = req.params.id;
+        const { id } = req.params;
         const { role } = req.body;
 
-        if (!ObjectId.isValid(id)) {
-          return res.status(400).send({ message: "Invalid ID format" });
-        }
-
-        const filter = { _id: new ObjectId(id) };
-        const updateDoc = { $set: { role: role } };
-
-        const result = await userCollection.updateOne(filter, updateDoc);
+        const result = await userCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { role: role } }
+        );
         res.send(result);
       } catch (error) {
         res.status(500).send({ message: "Error updating user role" });
@@ -250,14 +238,10 @@ async function run() {
     });
 
     // ৮. PROPERTY STATUS UPDATE ROUTE
-    app.patch('/property/status/:id', async (req, res) => {
+    app.patch('/property/status/:id', validateObjectId, async (req, res) => {
       try {
-        const id = req.params.id;
+        const { id } = req.params;
         const { status, rejectionTitle, rejectionFeedback } = req.body;
-
-        if (!ObjectId.isValid(id)) {
-          return res.status(400).send({ message: "Invalid ID format" });
-        }
 
         const query = { _id: new ObjectId(id) };
         let updateDoc = {
@@ -287,11 +271,9 @@ async function run() {
     // ১০. অলরেডি ফেভারিট করা আছে কি না চেক করার API
     app.get("/favorites/check", async (req, res) => {
       const { email, propertyId } = req.query;
-
       if (!email || !propertyId) {
         return res.status(400).send({ message: "Email and propertyId are required" });
       }
-
       try {
         const query = { userEmail: email, propertyId: propertyId };
         const favoriteItem = await favoritesCollection.findOne(query);
@@ -310,13 +292,10 @@ async function run() {
     // ১১. ফেভারিট কালেকশনে নতুন ডাটা যোগ করার API
     app.post("/favorites", async (req, res) => {
       const favoriteData = req.body;
-
       if (!favoriteData.userEmail || !favoriteData.propertyId) {
         return res.status(400).send({ message: "Missing required fields" });
       }
-
       try {
-        // ডুপ্লিকেট রোধ করার চেক
         const alreadyExist = await favoritesCollection.findOne({
           userEmail: favoriteData.userEmail,
           propertyId: favoriteData.propertyId
@@ -374,19 +353,62 @@ async function run() {
         res.status(500).send({ message: "Internal Server Error" });
       }
     });
-       app.post("/bookings", async (req, res) => {
+
+
+    // =========================================================================
+    // 🔥 BOOKING SYSTEM ENDPOINTS (FIXED DUPPLICATION)
+    // =========================================================================
+
+    // ১৪. ওনার ও টেন্যান্টের বুকিং লিস্ট দেখানোর ইউনিক রুট
+    // এই একটি রুটই ফ্রন্টএন্ডের সকল প্রকার ফিল্টারিং (ownerEmail / tenantEmail / email) হ্যান্ডেল করবে
+    // ১৪. ওনার ও টেন্যান্টের বুকিং লিস্ট দেখানোর অপ্টিমাইজড রুট
+    // ১৪. সব বুকিং ডাটা ফিল্টারিং ছাড়া একসাথে পাওয়ার ইউনিক রুট
+    app.get("/bookings", async (req, res) => {
+      try {
+        // কোনো ইমেইল ফিল্টার নেই, সরাসরি সব ডাটা চলে যাবে ফ্রন্টএন্ডে
+        const result = await bookingsCollection.find({}).sort({ _id: -1 }).toArray();
+        res.send(result);
+      } catch (error) {
+        console.error("Error fetching all bookings:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
+    // ১৫. OWNER-ER APPROVE/REJECT ACTION
+    app.patch("/bookings/status/:id", validateObjectId, async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { bookingStatus } = req.body;
+
+        if (!["Approved", "Rejected"].includes(bookingStatus)) {
+          return res.status(400).send({ message: "Invalid status value" });
+        }
+
+        const result = await bookingsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { bookingStatus } }
+        );
+        res.send(result);
+      } catch (error) {
+        console.error("Error updating booking status:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
+    // ১৬. PAYMENT-SUCCESS HOLE BOOKING + TRANSACTION DOCUMENT INSERT
+    app.post("/bookings", async (req, res) => {
       try {
         const data = req.body;
- 
+
         if (!data.transactionId || !data.propertyId) {
           return res.status(400).send({ message: "transactionId and propertyId are required" });
         }
- 
+
         const existing = await bookingsCollection.findOne({ transactionId: data.transactionId });
         if (existing) {
           return res.status(200).send({ booking: existing, alreadyExists: true });
         }
- 
+
         const bookingDoc = {
           propertyId: data.propertyId,
           propertyTitle: data.propertyTitle || "",
@@ -406,7 +428,7 @@ async function run() {
           transactionId: data.transactionId,
           bookingDate: new Date().toISOString(),
         };
- 
+
         const transactionDoc = {
           transactionId: data.transactionId,
           propertyId: data.propertyId,
@@ -420,18 +442,16 @@ async function run() {
           paymentStatus: "Paid",
           paymentDate: new Date().toISOString(),
         };
- 
+
         const bookingResult = await bookingsCollection.insertOne(bookingDoc);
         await transactionsCollection.insertOne(transactionDoc);
- 
+
         res.status(201).send({ bookingId: bookingResult.insertedId, booking: bookingDoc });
       } catch (error) {
         console.error("Error creating booking:", error);
         res.status(500).send({ message: "Internal Server Error" });
       }
     });
-
-
 
   } catch (error) {
     console.error("Database connection error:", error);
