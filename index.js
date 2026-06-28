@@ -28,6 +28,9 @@ async function run() {
     const db = client.db('havenFlow').collection('properties');
     const reviewsCollection = client.db('havenFlow').collection('reviews');
     const userCollection = client.db('havenFlow').collection('user');
+
+    const bookingsCollection = client.db('havenFlow').collection('bookings');
+    const transactionsCollection = client.db('havenFlow').collection('transactions');
     
     // ✅ ফেভারিট কালেকশন
     const favoritesCollection = client.db('havenFlow').collection('favorites');
@@ -371,6 +374,64 @@ async function run() {
         res.status(500).send({ message: "Internal Server Error" });
       }
     });
+       app.post("/bookings", async (req, res) => {
+      try {
+        const data = req.body;
+ 
+        if (!data.transactionId || !data.propertyId) {
+          return res.status(400).send({ message: "transactionId and propertyId are required" });
+        }
+ 
+        const existing = await bookingsCollection.findOne({ transactionId: data.transactionId });
+        if (existing) {
+          return res.status(200).send({ booking: existing, alreadyExists: true });
+        }
+ 
+        const bookingDoc = {
+          propertyId: data.propertyId,
+          propertyTitle: data.propertyTitle || "",
+          propertyImage: data.propertyImage || "",
+          ownerId: data.ownerId || "",
+          ownerName: data.ownerName || "",
+          ownerEmail: data.ownerEmail || "",
+          tenantId: data.tenantId || "",
+          tenantName: data.tenantName || "",
+          tenantEmail: data.tenantEmail || "",
+          moveInDate: data.moveInDate || "",
+          contactNumber: data.contactNumber || "",
+          additionalNotes: data.additionalNotes || "",
+          bookingAmount: Number(data.bookingAmount || 0),
+          paymentStatus: "Paid",
+          bookingStatus: "Pending",
+          transactionId: data.transactionId,
+          bookingDate: new Date().toISOString(),
+        };
+ 
+        const transactionDoc = {
+          transactionId: data.transactionId,
+          propertyId: data.propertyId,
+          propertyTitle: data.propertyTitle || "",
+          tenantName: data.tenantName || "",
+          tenantEmail: data.tenantEmail || "",
+          ownerName: data.ownerName || "",
+          ownerEmail: data.ownerEmail || "",
+          amount: Number(data.bookingAmount || 0),
+          paymentMethod: "Stripe",
+          paymentStatus: "Paid",
+          paymentDate: new Date().toISOString(),
+        };
+ 
+        const bookingResult = await bookingsCollection.insertOne(bookingDoc);
+        await transactionsCollection.insertOne(transactionDoc);
+ 
+        res.status(201).send({ bookingId: bookingResult.insertedId, booking: bookingDoc });
+      } catch (error) {
+        console.error("Error creating booking:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
+
 
   } catch (error) {
     console.error("Database connection error:", error);
